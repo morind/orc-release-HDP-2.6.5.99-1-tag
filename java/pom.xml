@@ -21,7 +21,7 @@
   </parent>
   <groupId>org.apache.orc</groupId>
   <artifactId>orc</artifactId>
-  <version>1.4.3.2.6.5.99-1</version>
+  <version>1.4.3.2.6.5.99-1-patched</version>
   <packaging>pom</packaging>
 
   <name>Apache ORC</name>
