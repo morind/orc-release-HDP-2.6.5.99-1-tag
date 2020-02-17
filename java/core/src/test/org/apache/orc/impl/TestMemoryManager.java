@@ -121,13 +121,13 @@ public class TestMemoryManager {
       calls[i] = Mockito.mock(MemoryManager.Callback.class);
       mgr.addWriter(new Path(Integer.toString(i)), pool/4, calls[i]);
     }
-    // add enough rows to get the memory manager to check the limits
-    for(int i=0; i < 10000; ++i) {
-      mgr.addedRow(1);
+    // check to make sure that they get scaled down
+    for(int i=0; i < calls.length; ++i) {
+      mgr.checkMemory(0, calls[i]);
     }
     for(int call=0; call < calls.length; ++call) {
-      Mockito.verify(calls[call], Mockito.times(2))
-          .checkMemory(Matchers.doubleThat(closeTo(0.2, ERROR)));
+      Mockito.verify(calls[call])
+              .checkMemory(Matchers.doubleThat(closeTo(0.2, ERROR)));
     }
   }
 }

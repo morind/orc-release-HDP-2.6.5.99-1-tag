@@ -18,15 +18,12 @@
 
 package org.apache.orc;
 
-import org.apache.orc.impl.OrcCodecPool;
-
-import org.apache.orc.impl.WriterImpl;
+import org.apache.orc.impl.*;
 
 import org.apache.orc.OrcFile.WriterOptions;
 
 import com.google.common.collect.Lists;
 
-import org.apache.orc.impl.ReaderImpl;
 import org.junit.Assert;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -49,10 +46,6 @@ import org.apache.hadoop.hive.serde2.io.DateWritable;
 import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Text;
-import org.apache.orc.impl.DataReaderProperties;
-import org.apache.orc.impl.OrcIndex;
-import org.apache.orc.impl.RecordReaderImpl;
-import org.apache.orc.impl.RecordReaderUtils;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -2125,108 +2118,94 @@ public class TestVectorOrcFile {
         new MiddleStruct(inner, inner2), list(), map(inner, inner2));
   }
 
-  private static class MyMemoryManager implements MemoryManager {
-    double rate;
-    Path path = null;
-    long lastAllocation = 0;
-    int rows = 0;
-    Callback callback;
-
-    MyMemoryManager(Configuration conf, long totalSpace, double rate) {
-      this.rate = rate;
-    }
-
-    @Override
-    public void addWriter(Path path, long requestedAllocation,
-                   Callback callback) {
-      this.path = path;
-      this.lastAllocation = requestedAllocation;
-      this.callback = callback;
-    }
-
-    @Override
-    public synchronized void removeWriter(Path path) {
-      this.path = null;
-      this.lastAllocation = 0;
-    }
-
-
-    @Override
-    public void addedRow(int count) throws IOException {
-      rows += count;
-      if (rows % 100 == 0) {
-        callback.checkMemory(rate);
-      }
-    }
-  }
-
   @Test
   public void testMemoryManagementV11() throws Exception {
+    OrcConf.ROWS_BETWEEN_CHECKS.setLong(conf, 100);
+    final long POOL_SIZE = 50_000;
     TypeDescription schema = createInnerSchema();
-    MyMemoryManager memory = new MyMemoryManager(conf, 10000, 0.1);
+    MemoryManagerImpl memoryMgr = new MemoryManagerImpl(POOL_SIZE);
+
+    // set up 10 files that all request the full size.
+    MemoryManager.Callback ignore = newScale -> false;
+    for(int f=0; f < 9; ++f) {
+      memoryMgr.addWriter(new Path("file-" + f), POOL_SIZE, ignore);
+    }
+
     Writer writer = OrcFile.createWriter(testFilePath,
-        OrcFile.writerOptions(conf)
-            .setSchema(schema)
-            .compress(CompressionKind.NONE)
-            .stripeSize(50000)
-            .bufferSize(100)
-            .rowIndexStride(0)
-            .memory(memory)
-            .version(OrcFile.Version.V_0_11));
-    assertEquals(testFilePath, memory.path);
+            OrcFile.writerOptions(conf)
+                    .setSchema(schema)
+                    .compress(CompressionKind.NONE)
+                    .stripeSize(POOL_SIZE)
+                    .bufferSize(100)
+                    .rowIndexStride(0)
+                    .memory(memoryMgr)
+                    .version(OrcFile.Version.V_0_11));
+    // check to make sure it is 10%
+    assertEquals(0.1, memoryMgr.getAllocationScale(), 0.001);
     VectorizedRowBatch batch = schema.createRowBatch();
     batch.size = 1;
     for(int i=0; i < 2500; ++i) {
       ((LongColumnVector) batch.cols[0]).vector[0] = i * 300;
       ((BytesColumnVector) batch.cols[1]).setVal(0,
-          Integer.toHexString(10*i).getBytes());
+              Integer.toHexString(10*i).getBytes(StandardCharsets.UTF_8));
       writer.addRowBatch(batch);
     }
     writer.close();
-    assertEquals(null, memory.path);
+    assertEquals(0.111, memoryMgr.getAllocationScale(), 0.001);
     Reader reader = OrcFile.createReader(testFilePath,
-        OrcFile.readerOptions(conf).filesystem(fs));
+            OrcFile.readerOptions(conf).filesystem(fs));
     int i = 0;
     for(StripeInformation stripe: reader.getStripes()) {
       i += 1;
       assertTrue("stripe " + i + " is too long at " + stripe.getDataLength(),
-          stripe.getDataLength() < 5000);
+              stripe.getDataLength() < POOL_SIZE);
     }
+    // 0.11 always uses the dictionary, so ends up with a lot more stripes
     assertEquals(25, i);
     assertEquals(2500, reader.getNumberOfRows());
   }
 
   @Test
   public void testMemoryManagementV12() throws Exception {
+    OrcConf.ROWS_BETWEEN_CHECKS.setLong(conf, 100);
+    final long POOL_SIZE = 50_000;
     TypeDescription schema = createInnerSchema();
-    MyMemoryManager memory = new MyMemoryManager(conf, 10000, 0.1);
+    MemoryManagerImpl memoryMgr = new MemoryManagerImpl(POOL_SIZE);
+
+    // set up 10 files that all request the full size.
+    MemoryManager.Callback ignore = newScale -> false;
+    for(int f=0; f < 9; ++f) {
+      memoryMgr.addWriter(new Path("file-" + f), POOL_SIZE, ignore);
+    }
+
     Writer writer = OrcFile.createWriter(testFilePath,
-                                         OrcFile.writerOptions(conf)
-                                         .setSchema(schema)
-                                         .compress(CompressionKind.NONE)
-                                         .stripeSize(50000)
-                                         .bufferSize(100)
-                                         .rowIndexStride(0)
-                                         .memory(memory)
-                                         .version(OrcFile.Version.V_0_12));
+            OrcFile.writerOptions(conf)
+                    .setSchema(schema)
+                    .compress(CompressionKind.NONE)
+                    .stripeSize(POOL_SIZE)
+                    .bufferSize(100)
+                    .rowIndexStride(0)
+                    .memory(memoryMgr)
+                    .version(OrcFile.Version.V_0_12));
+    // check to make sure it is 10%
+    assertEquals(0.1, memoryMgr.getAllocationScale(), 0.001);
     VectorizedRowBatch batch = schema.createRowBatch();
-    assertEquals(testFilePath, memory.path);
     batch.size = 1;
     for(int i=0; i < 2500; ++i) {
       ((LongColumnVector) batch.cols[0]).vector[0] = i * 300;
       ((BytesColumnVector) batch.cols[1]).setVal(0,
-          Integer.toHexString(10*i).getBytes());
+              Integer.toHexString(10*i).getBytes(StandardCharsets.UTF_8));
       writer.addRowBatch(batch);
     }
     writer.close();
-    assertEquals(null, memory.path);
+    assertEquals(0.111, memoryMgr.getAllocationScale(), 0.001);
     Reader reader = OrcFile.createReader(testFilePath,
-        OrcFile.readerOptions(conf).filesystem(fs));
+            OrcFile.readerOptions(conf).filesystem(fs));
     int i = 0;
     for(StripeInformation stripe: reader.getStripes()) {
       i += 1;
-      assertTrue(testFilePath + " stripe " + i + " is too long at " +
-              stripe.getDataLength(), stripe.getDataLength() < 5000);
+      assertTrue("stripe " + i + " is too long at " + stripe.getDataLength(),
+              stripe.getDataLength() < POOL_SIZE);
     }
     // with HIVE-7832, the dictionaries will be disabled after writing the first
     // stripe as there are too many distinct values. Hence only 3 stripes as
