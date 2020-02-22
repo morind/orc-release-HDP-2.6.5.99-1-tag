@@ -22,6 +22,8 @@ import org.apache.orc.MemoryManager;
 import org.apache.orc.OrcConf;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -40,6 +42,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * invocations are triggered from the same thread.
  */
 public class MemoryManagerImpl implements MemoryManager {
+
+  private static final Logger LOG = LoggerFactory.getLogger(MemoryManagerImpl.class);
 
   /**
    * How often should we check the memory sizes? Measured in rows added
@@ -71,6 +75,7 @@ public class MemoryManagerImpl implements MemoryManager {
    * @param poolSize the size of memory to use
    */
   public MemoryManagerImpl(long poolSize) {
+    LOG.info("MemoryManagerImpl patched");
     totalMemoryPool = poolSize;
   }
 
@@ -82,6 +87,7 @@ public class MemoryManagerImpl implements MemoryManager {
    */
   public synchronized void addWriter(Path path, long requestedAllocation,
                                      Callback callback) throws IOException {
+    LOG.info("MemoryManagerImpl::addWriter for {}...", path);
     WriterInfo oldVal = writerList.get(path);
     // this should always be null, but we handle the case where the memory
     // manager wasn't told that a writer wasn't still in use and the task

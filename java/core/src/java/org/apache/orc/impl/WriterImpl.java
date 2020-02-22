@@ -143,6 +143,8 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
   public WriterImpl(FileSystem fs,
                     Path path,
                     OrcFile.WriterOptions opts) throws IOException {
+    LOG.info("WriterImpl patched for {}...", path);
+
     this.path = path;
     this.conf = opts.getConfiguration();
     this.callback = opts.getCallback();
@@ -2824,6 +2826,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
 
   @Override
   public void addRowBatch(VectorizedRowBatch batch) throws IOException {
+    LOG.info("WriterImpl::addRowBatch...");
     if (buildIndex) {
       // Batch the writes up to the rowIndexStride so that we can get the
       // right size indexes.

@@ -677,6 +677,7 @@ public class OrcFile {
     FileSystem fs = opts.getFileSystem() == null ?
         path.getFileSystem(opts.getConfiguration()) : opts.getFileSystem();
 
+    LOG.info("OrcFile::createWriter for {}...", path);
     return new WriterImpl(fs, path, opts);
   }
 
